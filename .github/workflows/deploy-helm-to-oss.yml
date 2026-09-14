@@ -1,9 +1,13 @@
 name: Deploy Helm Chart to OSS
 
+# NOTE (fork): the `push: tags: v*.*.*` trigger is intentionally removed. This
+# workflow packages the chart and uploads it to `oss://higress-ai/helm-charts`,
+# which is the UPSTREAM vendor's public Helm repository rather than ours —
+# running it from this fork would write into a third party's release channel. It
+# also needs Aliyun OSS credentials this fork does not hold. Kept as manual
+# dispatch so the packaging logic remains available; restore the tag trigger
+# only against a repository you are authorised to publish into.
 on:
-  push:
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       version:

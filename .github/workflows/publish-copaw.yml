@@ -1,8 +1,13 @@
 name: Publish CoPaw Worker to PyPI
 
+# NOTE (fork): the `release: published` trigger is intentionally removed. This
+# workflow publishes the `copaw` package to the public PyPI index, which is the
+# upstream project's distribution channel, and it needs PYPI_API_TOKEN /
+# TEST_PYPI_API_TOKEN secrets that this fork does not hold. Firing on every fork
+# release would produce failed runs and would attempt to publish under the
+# upstream package name. Kept as manual dispatch so the packaging logic remains
+# available.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       target:
@@ -16,7 +21,7 @@ on:
 
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for trusted publishing

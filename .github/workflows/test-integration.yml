@@ -159,6 +159,14 @@ jobs:
 
   # Step 1a: Build the shared base image (agentteams-controller)
   build-base:
+    # NOTE (fork): the full integration suite pulls the upstream Aliyun base
+    # images and needs an LLM credential (AGENTTEAMS_LLM_API_KEY) that this fork
+    # does not hold, so the heavy build/test chain is restricted to the upstream
+    # repository. Everything that runs without registry access or secrets — the
+    # change detector and the DeepSeek Harness bridge unit tests — still runs
+    # here. Downstream jobs skip automatically because they require this job's
+    # result to be 'success'.
+    if: github.repository == 'agentscope-ai/AgentTeams'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -193,7 +201,7 @@ jobs:
   # published `:latest` from the registry (default Makefile behaviour).
   build-openclaw-base:
     needs: detect-changes
-    if: needs.detect-changes.outputs.openclaw_base == 'true'
+    if: github.repository == 'agentscope-ai/AgentTeams' && needs.detect-changes.outputs.openclaw_base == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
