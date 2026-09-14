@@ -4,10 +4,13 @@ FROM ${HIGRESS_REGISTRY}/higress/mc:20260216 AS mc
 
 FROM node:22.22-bookworm-slim
 
-# Selectable DeepSeek Harness version. Any published @deepseek-ai/dsh version is
-# accepted; the published image tag encodes it (v0.1.0-dsh<DSH_VERSION>) so
-# builds of different DSH versions coexist in the registry instead of
-# overwriting one another.
+# Selectable DeepSeek Harness version: any published @deepseek-ai/dsh version
+# is accepted. Note the image TAG does not encode it — the runtime tag is its
+# own version line (DEEPSEEK_HARNESS_WORKER_VERSION, currently v0.1.0) and is
+# pinned literally by the installer, Helm and the release workflow. The DSH
+# version is instead recorded in the image label below, so a running worker can
+# report which DSH it carries; publish under a distinct runtime tag when you
+# need two DSH versions to coexist in the registry.
 ARG DSH_VERSION=0.1.1-rc.2
 
 # Recorded in the image so a running worker can report which DSH it carries.

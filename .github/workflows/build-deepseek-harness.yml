@@ -150,6 +150,7 @@ jobs:
             echo "### DeepSeek Harness Runtime"
             echo ""
             echo "- Image: \`${IMAGE}\`"
+            echo "- Also tagged: \`${IMAGE}-dsh${DSH_VERSION}\` (records the baked-in DSH release)"
             echo "- Baked-in DSH: \`@deepseek-ai/dsh@${DSH_VERSION}\`"
             echo "- Platforms: \`linux/amd64, linux/arm64\`"
             echo ""

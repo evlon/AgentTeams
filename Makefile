@@ -57,6 +57,13 @@ HERMES_WORKER_TAG  ?= $(HERMES_WORKER_IMAGE):$(VERSION)
 QWENPAW_WORKER_TAG ?= $(QWENPAW_WORKER_IMAGE):$(VERSION)
 OPENHUMAN_WORKER_TAG ?= $(OPENHUMAN_WORKER_IMAGE):$(VERSION)
 DEEPSEEK_HARNESS_WORKER_TAG ?= $(DEEPSEEK_HARNESS_WORKER_IMAGE):$(DEEPSEEK_HARNESS_WORKER_VERSION)
+# Extra tag that records which DSH release is baked in, e.g.
+# v0.1.0-dsh0.1.1-rc.2. The plain runtime tag above stays the canonical,
+# literally-pinned one (installer, Helm and release workflow all reference
+# v0.1.0), while this alias makes the baked-in DSH version visible in the
+# registry so two DSH builds of the same runtime line can coexist instead of
+# overwriting each other.
+DEEPSEEK_HARNESS_WORKER_DSH_TAG ?= $(DEEPSEEK_HARNESS_WORKER_TAG)-dsh$(DSH_VERSION)
 OPENCLAW_BASE_TAG  ?= $(OPENCLAW_BASE_IMAGE):$(VERSION)
 CONTROLLER_TAG     ?= $(CONTROLLER_IMAGE):$(VERSION)
 EMBEDDED_TAG       ?= $(EMBEDDED_IMAGE):$(VERSION)
@@ -530,6 +537,7 @@ endif
 
 push-deepseek-harness-worker: buildx-setup ## Build + push multi-arch DeepSeek Harness Worker image (DSH_VERSION=0.1.1-rc.2)
 	@echo "==> Building + pushing multi-arch DeepSeek Harness Worker: $(DEEPSEEK_HARNESS_WORKER_TAG) (DSH: $(DSH_VERSION)) [$(MULTIARCH_PLATFORMS)]"
+	@echo "    also tagged: $(DEEPSEEK_HARNESS_WORKER_DSH_TAG)"
 ifeq ($(IS_PODMAN),1)
 	-podman manifest rm $(DEEPSEEK_HARNESS_WORKER_TAG) 2>/dev/null
 	$(foreach plat,$(subst $(comma), ,$(MULTIARCH_PLATFORMS)), \
@@ -540,6 +548,7 @@ ifeq ($(IS_PODMAN),1)
 			--manifest $(DEEPSEEK_HARNESS_WORKER_TAG) \
 			-f deepseek-harness/Dockerfile . && ) true
 	podman manifest push --all $(DEEPSEEK_HARNESS_WORKER_TAG) docker://$(DEEPSEEK_HARNESS_WORKER_TAG)
+	podman manifest push --all $(DEEPSEEK_HARNESS_WORKER_TAG) docker://$(DEEPSEEK_HARNESS_WORKER_DSH_TAG)
 else
 	docker buildx build \
 		--builder $(BUILDX_BUILDER) \
@@ -547,6 +556,7 @@ else
 		$(REGISTRY_ARG) $(DOCKER_BUILD_ARGS) \
 		--build-arg DSH_VERSION=$(DSH_VERSION) \
 		-t $(DEEPSEEK_HARNESS_WORKER_TAG) \
+		-t $(DEEPSEEK_HARNESS_WORKER_DSH_TAG) \
 		--push \
 		-f deepseek-harness/Dockerfile .
 endif
