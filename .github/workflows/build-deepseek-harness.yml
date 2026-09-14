@@ -3,8 +3,13 @@ name: Build DeepSeek Harness Runtime
 on:
   workflow_dispatch:
     inputs:
+      dsh_version:
+        description: 'DeepSeek Harness version to bake in (@deepseek-ai/dsh npm version, e.g. 0.1.1-rc.2)'
+        required: true
+        type: string
+        default: '0.1.1-rc.2'
       version:
-        description: 'Independent DeepSeek Harness runtime version (e.g. v0.1.0)'
+        description: 'Runtime image tag (its own version line, independent of the platform release). Bump when publishing a new runtime build.'
         required: true
         type: string
         default: 'v0.1.0'
@@ -22,14 +27,20 @@ on:
       - '.github/workflows/build-deepseek-harness.yml'
 
 env:
-  REGISTRY: higress-registry.cn-hangzhou.cr.aliyuncs.com
-  REPO: agentteams
+  # Published to GitHub Container Registry for this fork (the upstream Aliyun
+  # registry is not writable here). HIGRESS_REGISTRY is a separate pull-only
+  # mirror used for public base images.
+  REGISTRY: ghcr.io
+  REPO: ${{ github.repository_owner }}
+  # Default DSH version baked into the runtime image when not overridden.
+  DEFAULT_DSH_VERSION: '0.1.1-rc.2'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
 
     steps:
       - name: Free Up GitHub Actions Ubuntu Runner Disk Space
@@ -45,31 +56,48 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve runtime version
+      - name: Resolve runtime version and DSH version
         id: meta
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DSH_VERSION: ${{ inputs.dsh_version }}
+          INPUT_RUNTIME_VERSION: ${{ inputs.version }}
           GIT_REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
+          DEFAULT_DSH: ${{ env.DEFAULT_DSH_VERSION }}
         run: |
+          # The runtime image tag is its own version line: it is NOT derived
+          # from DSH_VERSION and NOT tied to the AgentTeams platform release.
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-            VERSION="${INPUT_VERSION}"
+            DSH_VERSION="${INPUT_DSH_VERSION:-${DEFAULT_DSH}}"
+            RUNTIME_VERSION="${INPUT_RUNTIME_VERSION}"
           elif [[ "${GIT_REF}" == refs/tags/deepseek-harness-* ]]; then
-            VERSION="${REF_NAME}"
-            VERSION="${VERSION#deepseek-harness-}"
+            RUNTIME_VERSION="${REF_NAME}"
+            RUNTIME_VERSION="${RUNTIME_VERSION#deepseek-harness-}"
+            DSH_VERSION="${DEFAULT_DSH}"
           else
-            VERSION="sha-${COMMIT_SHA:0:12}"
+            RUNTIME_VERSION="sha-${COMMIT_SHA:0:12}"
+            DSH_VERSION="${DEFAULT_DSH}"
           fi
-          if [ "${EVENT_NAME}" = "workflow_dispatch" ] || [[ "${GIT_REF}" == refs/tags/deepseek-harness-* ]]; then
-            if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-              echo "ERROR: invalid runtime version: ${VERSION}"
-              exit 1
-            fi
+
+          # DSH version must be a plain npm version (no leading "v").
+          if [[ ! "${DSH_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "ERROR: invalid DeepSeek Harness version: ${DSH_VERSION}"
+            echo "       expected an npm version like 0.1.1-rc.2 (no leading 'v')"
+            exit 1
           fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          # Image tag must be a valid container tag.
+          if [[ ! "${RUNTIME_VERSION}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "ERROR: invalid runtime image tag: ${RUNTIME_VERSION}"
+            exit 1
+          fi
+
+          echo "dsh_version=${DSH_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=${RUNTIME_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved: DSH=${DSH_VERSION} image tag=${RUNTIME_VERSION}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -81,22 +109,26 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push runtime image
         env:
           RUNTIME_VERSION: ${{ steps.meta.outputs.version }}
+          DSH_VERSION: ${{ steps.meta.outputs.dsh_version }}
         run: |
           make push-deepseek-harness-worker \
             DEEPSEEK_HARNESS_WORKER_VERSION="${RUNTIME_VERSION}" \
+            DSH_VERSION="${DSH_VERSION}" \
             REGISTRY="${REGISTRY}" \
             REPO="${REPO}" \
+            HIGRESS_REGISTRY=higress-registry.us-west-1.cr.aliyuncs.com \
             DOCKER_BUILD_ARGS="--build-arg APT_MIRROR= --build-arg PIP_INDEX_URL=https://pypi.org/simple/"
 
       - name: Verify published image
         env:
           VERSION: ${{ steps.meta.outputs.version }}
+          DSH_VERSION: ${{ steps.meta.outputs.dsh_version }}
         run: |
           IMAGE="${REGISTRY}/${REPO}/agentteams-deepseek-harness-worker:${VERSION}"
           docker buildx imagetools inspect "${IMAGE}"
@@ -113,5 +145,13 @@ jobs:
             echo "### DeepSeek Harness Runtime"
             echo ""
             echo "- Image: \`${IMAGE}\`"
+            echo "- Baked-in DSH: \`@deepseek-ai/dsh@${DSH_VERSION}\`"
             echo "- Platforms: \`linux/amd64, linux/arm64\`"
+            echo ""
+            echo "Select this runtime on a Worker with:"
+            echo '```yaml'
+            echo "spec:"
+            echo "  runtime: deepseek-harness"
+            echo "  image: ${IMAGE}"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

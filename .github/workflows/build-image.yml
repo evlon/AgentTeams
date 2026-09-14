@@ -12,10 +12,14 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 env:
-  REGISTRY: higress-registry.cn-hangzhou.cr.aliyuncs.com
-  REPO: agentteams
+  # Images are published to GitHub Container Registry for this fork. The
+  # upstream Aliyun registry is not writable from here; HIGRESS_REGISTRY (used
+  # only to *pull* public base images) is set separately in the build steps.
+  REGISTRY: ghcr.io
+  REPO: ${{ github.repository_owner }}
 
 jobs:
   build:
@@ -25,8 +29,8 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check existing multi-architecture image
         id: existing

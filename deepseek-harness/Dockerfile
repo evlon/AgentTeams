@@ -4,7 +4,15 @@ FROM ${HIGRESS_REGISTRY}/higress/mc:20260216 AS mc
 
 FROM node:22.22-bookworm-slim
 
+# Selectable DeepSeek Harness version. Any published @deepseek-ai/dsh version is
+# accepted; the published image tag encodes it (v0.1.0-dsh<DSH_VERSION>) so
+# builds of different DSH versions coexist in the registry instead of
+# overwriting one another.
 ARG DSH_VERSION=0.1.1-rc.2
+
+# Recorded in the image so a running worker can report which DSH it carries.
+LABEL org.opencontainers.image.title="AgentTeams DeepSeek Harness Worker" \
+      ai.deepseek.dsh.version="${DSH_VERSION}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \

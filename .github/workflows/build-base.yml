@@ -9,14 +9,18 @@ on:
       - 'openclaw-base/**'
 
 env:
-  REGISTRY: higress-registry.cn-hangzhou.cr.aliyuncs.com
-  REPO: agentteams
+  # Published to GitHub Container Registry for this fork (the upstream Aliyun
+  # registry is not writable here). HIGRESS_REGISTRY is a separate pull-only
+  # mirror used for public base images.
+  REGISTRY: ghcr.io
+  REPO: ${{ github.repository_owner }}
 
 jobs:
   build-base:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
 
     steps:
       - name: Free Up GitHub Actions Ubuntu Runner Disk Space 🔧
@@ -42,8 +46,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push multi-arch base image
         run: |

@@ -14,8 +14,14 @@ on:
         type: string
 
 env:
-  REGISTRY: higress-registry.cn-hangzhou.cr.aliyuncs.com
-  REPO: agentteams
+  # Images live in GitHub Container Registry for this fork (the upstream Aliyun
+  # registry is not writable here). This must match the REGISTRY/REPO used by
+  # build.yml / build-image.yml so release verification finds the images.
+  REGISTRY: ghcr.io
+  REPO: ${{ github.repository_owner }}
+  # DeepSeek Harness runtime image tag. This is its OWN version line,
+  # independent of the AgentTeams release version and of the @deepseek-ai/dsh
+  # version baked into the image. Bump it when publishing a new runtime build.
   DEEPSEEK_HARNESS_WORKER_VERSION: v0.1.0
 
 jobs:

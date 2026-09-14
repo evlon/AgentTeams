@@ -187,7 +187,7 @@ credentialProvider:
 controller:
   replicaCount: 1               # increase for HA with leader election
   image:
-    repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-controller
+    repository: ghcr.io/evlon/agentteams-controller
     tag: ""                   # defaults to global.imageTag
     pullPolicy: IfNotPresent
   service:
@@ -244,7 +244,7 @@ manager:
   model: ""                     # LLM model; defaults to credentials.defaultModel
   runtime: "openclaw"           # openclaw | qwenpaw
   image:
-    repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-manager
+    repository: ghcr.io/evlon/agentteams-manager
     tag: ""                     # defaults to global.imageTag
   resources:
     requests:
@@ -289,19 +289,19 @@ cms:
 worker:
   defaultImage:
     openclaw:
-      repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-worker
+      repository: ghcr.io/evlon/agentteams-worker
       tag: ""                 # defaults to global.imageTag
     copaw:
-      repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-copaw-worker
+      repository: ghcr.io/evlon/agentteams-copaw-worker
       tag: ""                 # defaults to global.imageTag
     hermes:
-      repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-hermes-worker
+      repository: ghcr.io/evlon/agentteams-hermes-worker
       tag: ""                 # defaults to global.imageTag
     openhuman:
       repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/agentteams-openhuman-worker
       tag: ""                 # defaults to global.imageTag
     deepseekHarness:
-      repository: higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-deepseek-harness-worker
+      repository: ghcr.io/evlon/agentteams-deepseek-harness-worker
       tag: "v0.1.0"           # experimental; released independently from global.imageTag
   defaultRuntime: "openclaw"
   resources:

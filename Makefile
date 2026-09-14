@@ -21,7 +21,19 @@
 # ---------- Configuration ----------
 
 VERSION        ?= latest
+# DeepSeek Harness runtime image tag. This is its OWN version line, independent
+# of both VERSION (the AgentTeams platform release) and DSH_VERSION (the
+# @deepseek-ai/dsh npm version baked into the image) — the upstream project
+# releases the runtime separately, so bump it by hand when publishing a new
+# runtime build.
 DEEPSEEK_HARNESS_WORKER_VERSION ?= v0.1.0
+# @deepseek-ai/dsh npm version baked into the DeepSeek Harness worker image.
+# Selectable so one AgentTeams tree can build against any DSH release:
+#   make push-deepseek-harness-worker DSH_VERSION=0.1.5-rc.1
+# Note this does NOT change the image tag; two builds that differ only in
+# DSH_VERSION would collide on the same tag. Bump
+# DEEPSEEK_HARNESS_WORKER_VERSION alongside it when publishing both.
+DSH_VERSION    ?= 0.1.1-rc.2
 REGISTRY       ?= higress-registry.cn-hangzhou.cr.aliyuncs.com
 REPO           ?= agentteams
 
@@ -215,9 +227,10 @@ build-qwenpaw-worker: ## Build QwenPaw Worker image
 		-t $(LOCAL_QWENPAW_WORKER) \
 		.
 
-build-deepseek-harness-worker: ## Build DeepSeek Harness Worker image
-	@echo "==> Building DeepSeek Harness Worker image: $(LOCAL_DEEPSEEK_HARNESS_WORKER) (registry: $(HIGRESS_REGISTRY))"
+build-deepseek-harness-worker: ## Build DeepSeek Harness Worker image (DSH_VERSION=0.1.1-rc.2)
+	@echo "==> Building DeepSeek Harness Worker image: $(LOCAL_DEEPSEEK_HARNESS_WORKER) (DSH: $(DSH_VERSION), registry: $(HIGRESS_REGISTRY))"
 	docker build $(PLATFORM_FLAG) $(REGISTRY_ARG) $(DOCKER_BUILD_ARGS) \
+		--build-arg DSH_VERSION=$(DSH_VERSION) \
 		-f deepseek-harness/Dockerfile \
 		-t $(LOCAL_DEEPSEEK_HARNESS_WORKER) \
 		.
@@ -515,14 +528,15 @@ else
 		-f qwenpaw/Dockerfile .
 endif
 
-push-deepseek-harness-worker: buildx-setup ## Build + push multi-arch DeepSeek Harness Worker image
-	@echo "==> Building + pushing multi-arch DeepSeek Harness Worker: $(DEEPSEEK_HARNESS_WORKER_TAG) [$(MULTIARCH_PLATFORMS)]"
+push-deepseek-harness-worker: buildx-setup ## Build + push multi-arch DeepSeek Harness Worker image (DSH_VERSION=0.1.1-rc.2)
+	@echo "==> Building + pushing multi-arch DeepSeek Harness Worker: $(DEEPSEEK_HARNESS_WORKER_TAG) (DSH: $(DSH_VERSION)) [$(MULTIARCH_PLATFORMS)]"
 ifeq ($(IS_PODMAN),1)
 	-podman manifest rm $(DEEPSEEK_HARNESS_WORKER_TAG) 2>/dev/null
 	$(foreach plat,$(subst $(comma), ,$(MULTIARCH_PLATFORMS)), \
 		echo "  -> Building DeepSeek Harness Worker for $(plat)..." && \
 		podman build --platform $(plat) \
 			$(REGISTRY_ARG) $(DOCKER_BUILD_ARGS) \
+			--build-arg DSH_VERSION=$(DSH_VERSION) \
 			--manifest $(DEEPSEEK_HARNESS_WORKER_TAG) \
 			-f deepseek-harness/Dockerfile . && ) true
 	podman manifest push --all $(DEEPSEEK_HARNESS_WORKER_TAG) docker://$(DEEPSEEK_HARNESS_WORKER_TAG)
@@ -531,6 +545,7 @@ else
 		--builder $(BUILDX_BUILDER) \
 		--platform $(MULTIARCH_PLATFORMS) \
 		$(REGISTRY_ARG) $(DOCKER_BUILD_ARGS) \
+		--build-arg DSH_VERSION=$(DSH_VERSION) \
 		-t $(DEEPSEEK_HARNESS_WORKER_TAG) \
 		--push \
 		-f deepseek-harness/Dockerfile .
