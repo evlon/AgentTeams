@@ -56,9 +56,23 @@ RUN if [ -n "${APT_MIRROR}" ]; then \
 
 # Install Node.js 22 via NodeSource (the base image does not ship Node.js).
 # setup_22.x auto-installs gnupg / apt-transport-https if missing.
+#
+# Pin pnpm to the version OpenClaw declares in its `packageManager` field
+# (pnpm@10.32.1). Installing pnpm unpinned pulls the latest release, which no
+# longer matches the checkout; pnpm then auto-downloads the pinned manager into
+# its package-manager-store. That download is the standalone `@pnpm/exe`, whose
+# `bin` is a native ELF binary rather than bin/pnpm.cjs. OpenClaw's
+# scripts/pnpm-runner.mjs honours `npm_execpath`, so build-all.mjs then runs the
+# ELF through `node` and dies with:
+#     SyntaxError: Invalid or unexpected token
+# at node_modules/@pnpm/exe/pnpm:1 (ELF^B^A^A^C)
+# which fails `pnpm build` and therefore the whole openclaw-base image.
+# Installing the matching version keeps npm_execpath on the JS entrypoint.
+# Keep this in sync with `packageManager` in the pinned OpenClaw commit.
+ARG PNPM_VERSION=10.32.1
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
-    npm install -g pnpm && \
+    npm install -g pnpm@${PNPM_VERSION} && \
     rm -rf /var/lib/apt/lists/*
 
 # Clone, build, and optimize OpenClaw
