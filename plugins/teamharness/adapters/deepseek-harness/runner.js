@@ -63,12 +63,15 @@ async function run(ctx, config, io) {
 
   const selection = defaultModel.currentSelection()
   const sessionId = SessionId(config.sessionId || `session-${randomUUID()}`)
-  const { agent } = await openAgent(ctx, sessionId, config.resume, selection)
+  const handle = await openAgent(ctx, sessionId, config.resume, selection)
+  // DeepSeek Harness agents.create/resume return an AgentHandle { agent, dispose }.
+  const agent = handle.agent
   await agent.whenIdle()
 
   const id = messageId(config.eventId, config.attempt)
   const outcome = await executeAttempt({
-    getEvents: () => agent.session.events,
+    // DSH 0.1.5 removed the `agent.session.events` getter; use snapshotEvents() instead.
+    getEvents: () => agent.session.snapshotEvents(0, agent.session.seq),
     id,
     firstSeq: agent.session.seq,
     eventId: config.eventId,
@@ -76,6 +79,7 @@ async function run(ctx, config, io) {
     whenIdle: () => agent.whenIdle(),
     flush: () => sessions.flush(agent.session),
   })
+  await handle.dispose()
 
   io.stdout.write((outcome?.text ?? '') + '\n')
   if (outcome?.reason?.kind === 'error') {
