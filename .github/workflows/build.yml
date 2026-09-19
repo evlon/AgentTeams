@@ -8,10 +8,10 @@ on:
         required: false
         type: string
       targets:
-        description: 'Space-separated list of push targets (default: all). Options: openclaw-base agentteams-controller embedded manager manager-qwenpaw worker copaw-worker hermes-worker qwenpaw-worker'
+        description: 'Space-separated list of push targets (default: core). Options: openclaw-base agentteams-controller embedded manager manager-qwenpaw worker copaw-worker hermes-worker qwenpaw-worker. Default core set = agentteams-controller embedded manager-qwenpaw (we only use the DeepSeek Harness worker runtime; other runtimes are not built).'
         required: false
         type: string
-        default: 'all'
+        default: 'agentteams-controller embedded manager-qwenpaw'
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -58,7 +58,16 @@ jobs:
           version = os.environ['GITHUB_REF_NAME'] if tagged else os.environ['REQUESTED_VERSION'] or 'latest'
           if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}', version):
               raise SystemExit('Invalid image version')
-          requested = 'all' if tagged else os.environ['REQUESTED_TARGETS'] or 'all'
+          # Default build set = core images only. We use the DeepSeek Harness
+          # worker runtime; the other worker images (openclaw worker, copaw,
+          # hermes, qwenpaw) and openclaw-base/manager are NOT built by default.
+          # Tagged releases build this same core set unless overridden via
+          # workflow_dispatch `targets` input.
+          default_targets = 'agentteams-controller embedded manager-qwenpaw'
+          requested_input = os.environ.get('REQUESTED_TARGETS', '').strip() or ''
+          requested = 'all' if requested_input == 'all' else (requested_input or default_targets)
+          if tagged and not requested_input:
+              requested = default_targets
           selected = set(dependencies) if requested == 'all' else set(requested.split())
           if not selected or selected - dependencies.keys():
               raise SystemExit('Unknown or empty build targets: ' + requested)

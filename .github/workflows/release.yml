@@ -57,11 +57,13 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Keep this list aligned with the release targets in build.yml.
+          # Keep this list aligned with the default release targets in build.yml.
+          # We only build the DeepSeek Harness worker runtime; the OpenClaw/
+          # CoPaw/Hermes/QwenPaw worker images and openclaw-base are NOT built by
+          # default (kept only as Helm references), so they are intentionally
+          # excluded from this required-images check.
           images=(
-            openclaw-base agentteams-controller agentteams-embedded
-            agentteams-manager agentteams-manager-qwenpaw agentteams-worker
-            agentteams-copaw-worker agentteams-qwenpaw-worker agentteams-hermes-worker
+            agentteams-controller agentteams-embedded agentteams-manager-qwenpaw
           )
           for image in "${images[@]}"; do
             ref="${REGISTRY}/${REPO}/${image}:${VERSION}"
@@ -156,21 +158,20 @@ jobs:
           # Embedded all-in-one (infra + controller; pulled by the installer)
           docker pull ${REGISTRY}/${REPO}/agentteams-embedded:${VERSION}
 
-          # Manager (lightweight; spawned by the embedded controller)
-          docker pull ${REGISTRY}/${REPO}/agentteams-manager:${VERSION}
-
-          # Worker
-          docker pull ${REGISTRY}/${REPO}/agentteams-worker:${VERSION}
-
-          # QwenPaw Worker
-          docker pull ${REGISTRY}/${REPO}/agentteams-qwenpaw-worker:${VERSION}
-
-          # DeepSeek Harness Worker (experimental)
-          docker pull ${REGISTRY}/${REPO}/agentteams-deepseek-harness-worker:${DEEPSEEK_HARNESS_WORKER_VERSION}
+          # QwenPaw Manager (lightweight; spawned by the embedded controller)
+          docker pull ${REGISTRY}/${REPO}/agentteams-manager-qwenpaw:${VERSION}
 
           # Controller (used standalone in k8s; bundled inside agentteams-embedded for docker installs)
           docker pull ${REGISTRY}/${REPO}/agentteams-controller:${VERSION}
+
+          # DeepSeek Harness Worker (experimental; the only built worker runtime)
+          docker pull ${REGISTRY}/${REPO}/agentteams-deepseek-harness-worker:${DEEPSEEK_HARNESS_WORKER_VERSION}
           \`\`\`
+
+          > Other worker runtimes (OpenClaw, CoPaw, Hermes, QwenPaw) are kept
+          > as Helm references but are not built by this fork's CI.
+          > The Manager image here is the QwenPaw runtime; there is no OpenClaw
+          > manager build in this fork.
 
           ---
 
