@@ -62,7 +62,7 @@ Controller 提供两个只读端点，把 TeamHarness 项目状态
 
 | 参数 | 类型 | 含义 |
 |:--|:--|:--|
-| `includeTasks` | `bool` | 为 `true` 时同时读取每个任务的 TaskMeta（`shared/tasks/{id}/meta.json`），在响应中附加 `tasks_detail` 数组（spec/result/交付物字段）。默认 `false` 保持响应轻量。 |
+| `includeTasks` | `bool` | 为 `true` 时同时读取每个任务的 TaskMeta（`shared/tasks/{id}/meta.json`），在响应中附加 `tasks_detail` 数组（spec/result/交付物字段、不透明的 `submission_id` fence、以及 `history` 转换审计轨迹——旧 meta 无该字段时省略）。默认 `false` 保持响应轻量。 |
 | `format` | `string` | 响应格式。缺省返回上方 JSON 快照；`format=mermaid` 返回同一快照渲染的 Mermaid 流程图（`text/plain`，不含 `tasks_detail`——渲染只需 nodes/edges/next）。其他值返回 `400`。 |
 
 Mermaid 输出（`?format=mermaid`）对齐 LangGraph 的 `draw_mermaid` 助手：每个节点标签为 `name: status`，next/ready 节点高亮 `ready`，其余节点按状态着色（`pending` / `delegated` / `inProgress` / `completed` / `revision` / `blocked`）。所有 classDef 都会输出，图可独立渲染。任务标题与 ID 为用户可控输入，渲染前做 mermaid 安全归一：换行→`<br>`、双引号→`#quot;`、反斜杠丢弃、其他控制字符→空格；含 `[A-Za-z0-9_-]` 之外字符的 task ID 映射为防冲突节点 ID（标签保留原文）。畸形标题因此不可能改变渲染出的图结构。
@@ -111,6 +111,7 @@ Mermaid 输出（`?format=mermaid`）对齐 LangGraph 的 `draw_mermaid` 助手�
       "assigned_to": "@w1:matrix.local",
       "summary": "Alpha report done",
       "result_status": "SUCCESS",
+      "submission_id": "submission-123",
       "deliverables": [{"type": "file", "path": "shared/tasks/t1/output.pdf"}],
       "result_path": "shared/tasks/t1/result.md"
     }
@@ -118,7 +119,7 @@ Mermaid 输出（`?format=mermaid`）对齐 LangGraph 的 `draw_mermaid` 助手�
 }
 ```
 
-`tasks_detail` 仅在 `?includeTasks=true` 时出现。它透传项目级 `nodes[]` 摘要不包含的 TaskMeta 字段：`spec_path`（任务规格文件）、`summary` / `result_status` / `result_path`（提交结果）、`deliverables`（产物清单）与 `cancel_reason`（取消原因）。TaskMeta 按与项目相同的双前缀布局读取（优先 `teams/{team}/shared/tasks/{id}/meta.json`，其次 `shared/tasks/{id}/`），团队作用域的任务优先于任何全局副本。没有 TaskMeta 文件的任务（如尚未委派）会被跳过；单个任务读取错误也会跳过，避免一个坏任务拖垮整个响应。
+`tasks_detail` 仅在 `?includeTasks=true` 时出现。它透传项目级 `nodes[]` 摘要不包含的 TaskMeta 字段：`spec_path`（任务规格文件）、`summary` / `result_status` / `result_path`（提交结果）、`deliverables`（产物清单）、`cancel_reason`（取消原因）、`history`（任务状态转换审计轨迹，最早在前，条目为 `{ts, from, to, action, actor, note?}`）以及用于约束 accept/cancel 决定的不透明 `submission_id`。TaskMeta 只从项目所属作用域读取：团队项目读取 `teams/{team}/shared/tasks/{id}/meta.json`，standalone 项目读取 `shared/tasks/{id}/meta.json`，不跨作用域回退。`task_id` 或 `project_id` 不匹配的 TaskMeta 会被拒绝。没有 TaskMeta 文件的任务（如尚未委派）会被跳过；单个任务读取错误也会跳过，避免一个坏任务拖垮整个响应。
 
 节点状态归一化为前端友好枚举：
 
@@ -182,6 +183,7 @@ GET /api/v1/projects/{id}/tasks/{taskId}?team=alpha-team
 
 字段说明：
 
+- `submission_id`：TaskMeta 中存在时原样返回；取消这次提交时，将它作为 `submissionId` 传入。
 - `status`：TaskMeta 存在时为**原始**状态（与 `?includeTasks=true` 的 `tasks_detail` 同语义）；TaskMeta 缺失时回退到图节点归一化状态（`pending | delegated | in-progress | completed | revision | blocked`）。
 - `history`：由 TeamHarness taskflow（及 controller 的 cancel 路径）append-only 维护的已接受状态迁移审计，上限 50 条；工作流状态机落地（设计：agentscope-ai/AgentTeams#1223）前为空。畸形条目跳过，不报错。
 - `trace` 是 tracing 后端的过滤提示：其 `project_id` / `task_id` 用于匹配 span 属性 `agentteams.project.id` / `agentteams.task.id`（worker entry span 已携带这两个属性）。本端点不构造后端 URL，tracing 后端是部署特定的。
@@ -212,6 +214,58 @@ GET /api/v1/projects/{id}/tasks/{taskId}?team=alpha-team
 | `404` | 项目不存在 / 调用者不拥有它（隐藏存在性）/ 任务不在项目图中 / 任务没有已发布产物 / 请求路径不是已声明产物 / 产物文件缺失 / 产物路径被拒绝。 |
 | `500` | K8s 或对象存储故障。 |
 
+### `GET /api/v1/projects/{id}/events`
+
+返回项目的**任务转换时间线**——读时聚合项目内全部任务的 `history` 数组（与
+`?includeTasks=true` 的每任务审计轨迹同源），合并为一条**升序**列表。零新存储、
+无写侧钩子：端点按需读取 task meta。项目级干预事件**不**在此时间线内——用
+`GET /history` 快照端点，两者互补。
+
+查询参数：
+
+| 参数 | 类型 | 默认 | 含义 |
+|:--|:--|:--|:--|
+| `team` | string | — | 可选 team 限定，与其他读端点语义一致。 |
+| `limit` | int | `50` | 分页大小，上限 `200`；小于 `1` 返回 `400`。 |
+| `cursor` | string | — | 上一页 `next_cursor` 返回的不透明游标，原样传回续读。它编码该页最后一条事件的身份（ts、task_id、seq），新增事件不会使其失效，每任务 50 条历史上限淘汰已读事件也不会。对无 seq 的旧格式事件（同一秒多条共享同一身份），游标额外锚定其在该重复组内的位置，翻页必然推进。 |
+
+响应 `200 OK`：
+
+```json
+{
+  "project_id": "demo-project-001",
+  "events": [
+    {
+      "ts": "2026-09-09T10:00:00Z",
+      "task_id": "t1",
+      "from": "planned",
+      "to": "prepared",
+      "action": "delegate_task",
+      "actor": "leader:default",
+      "seq": 1
+    }
+  ],
+  "next_cursor": "eyJ0cyI6IjIwMjYt..."
+}
+```
+
+- `events` **最早在前**；秒级时间戳相同时按 `task_id` 排序，两者相同则保持写入端追加顺序（`seq`），分页确定。
+- 每条事件携带 `seq`（写入端持久化的每任务序号）：稳定的事件身份。时间戳为秒级精度且允许重复 progress 事件，因此仅凭内容无法唯一标识事件。
+- `next_cursor` 为空 = 已到尾部；空项目返回 `200` + `"events": []`。
+- `next_cursor` 是不透明的 URL-safe 串，客户端不解析；它按精确身份（ts、task_id、seq）锚定该页最后一条事件，翻页间隙追加新事件不会使其失效，同秒同内容的重复事件也不会被跳过或重复。锚定在旧格式（无 seq）同秒重复组内的游标额外携带该事件在组内的序号与列表长度快照，对这类历史——包括永不回填 seq 的已完成只读项目——翻页每页恰推进一条，不会停滞。
+- `cursor_expired` 为 `true`（`"events": []`、无 `next_cursor`）= 游标锚定的事件已被每任务 50 条历史上限淘汰，或旧格式重复组游标的快照已被截断（组内位置可能漂移），或游标早于序号格式（旧内容锚点游标）。收到该信号必须丢弃游标、从头重新拉取；继续续读会静默漏事件。
+- task meta 只取项目属主作用域，不跨作用域回退（与 `tasks_detail` 同规则）。
+
+错误响应：
+
+| 状态码 | 含义 |
+|:--|:--|
+| `400` | 缺少项目 id / `limit` 或 `cursor` 非法。 |
+| `403` | 已认证但该角色完全不能读取项目（如 Worker）。 |
+| `404` | 项目不存在 / 调用者不拥有它（隐藏存在性）。 |
+| `409` | 跨 team 项目 id 歧义；带 `?team=` 重试。 |
+| `500` | K8s 或对象存储故障。 |
+
 ## 人类干预与生命周期端点（写 API）
 
 上面的只读端点之外，还有让人类干预 agent 编排工作流的写端点。所有写入都经过
@@ -233,7 +287,7 @@ GET /api/v1/projects/{id}/tasks/{taskId}?team=alpha-team
 {
   "title": "新项目",
   "source": "matrix",
-  "requester": "@luo:server",
+  "requester": "@carol:server",
   "team_id": "biz-team",
   "project_id": "可选自定义 id",
   "source_room_id": "!room:server"
@@ -290,14 +344,37 @@ GET /api/v1/projects/{id}/tasks/{taskId}?team=alpha-team
 必须是 `dag`（loop 的重规划走 `record_loop_iteration`）、状态必须是
 `active`、不能有 `in_progress`/`submitted` 任务。响应 `200` 返回更新后的
 工作流。
+重规划保留已有的 cancellation decision；同一个 task id 不能从已取消状态原地重开，
+也不能先从计划删除再以同名任务添加。替代工作必须使用新的 task id。
 
 ### `POST /api/v1/projects/{id}/tasks/{taskId}/cancel`
 
-取消单个任务。请求体要求 `reason`（可选 `replacementTaskId`）。任务必须
-可变——终态任务（completed/revision/blocked/cancelled）以 `409` 拒绝。
-任务的 `TaskMeta` 打上 `status=cancelled` + `cancel_reason`，项目节点状态
-同步更新。响应 `200` 返回更新后的工作流。错误：`400` 缺 reason；`404`
-任务不在项目里/任务 meta 缺失；`409` 终态任务。
+取消单个任务：
+
+```json
+{
+  "reason": "不再需要",
+  "replacementTaskId": "replacement-01",
+  "submissionId": "submission-123"
+}
+```
+
+`reason` 必填，`replacementTaskId` 可选。`submissionId` 是条件必填字段：
+TaskMeta 已有 `submission_id` 时，调用方必须传入完全相同的不透明值。缺失、
+凭空构造或过期的 identity 会在 ProjectMeta/TaskMeta 发生任何写入前以 `409`
+拒绝。
+
+成功后，项目节点和 TaskMeta 都变成 `cancelled`；TaskMeta 持久化稳定的
+`cancel_reason` / `replacement_task_id` / `cancelled_at`，并把已有 pending
+continuation 解决为 `cancelled`，原 `delivery_id` 不变。相同取消请求可幂等
+重试；reason、replacement 或 submission identity 不同则与既有决定冲突。
+已经 `completed`、`revision` 或 `blocked` 的任务不能取消。响应 `200` 返回
+更新后的工作流。错误：`400` 缺 reason 或 replacement task id 非法；`404` 任务不在项目里/TaskMeta
+缺失；`409` 终态任务、submission fence 失败或取消决定冲突。
+
+Controller 先把一份最小 cancellation decision envelope 写入项目节点，再写
+TaskMeta。如果第二次写入失败，完全相同的请求可以补齐 TaskMeta/continuation；
+reason、replacement 或 submission identity 不同的重试会被拒绝。
 
 ### `POST /api/v1/projects/{id}/complete`
 
@@ -341,6 +418,7 @@ agt get projects                      # 列出全部
 agt get projects --team biz-team      # 按团队过滤
 agt get projects demo-project-001     # 工作流详情
 agt get projects demo-project-001 -o json
+agt get projects demo-project-001 --include-tasks -o json
 agt get projects demo-project-001 --mermaid   # 渲染 DAG 为 mermaid（含状态着色）
 ```
 
@@ -357,6 +435,8 @@ CLI 原样转发配置的 bearer 令牌（`AGENTTEAMS_AUTH_TOKEN` 或
 `AGENTTEAMS_AUTH_TOKEN_FILE`），所以 L2 人类也可以用——把任一变量指向自己的
 Matrix 访问令牌即可，无需单独的 CLI 认证模式。
 
+`--include-tasks` 必须和 `-o json` 一起使用；默认详情视图不渲染原始 TaskMeta 字段。
+
 ### `agt project`（写命令）
 
 `agt project` 包装写端点，人类无需 raw curl 即可干预：
@@ -366,7 +446,8 @@ agt project create --title "新项目" --team biz-team --source matrix
 agt project pause demo-project-001 --reason "客户评审"
 agt project resume demo-project-001
 agt project replan demo-project-001 --tasks tasks.json   # JSON 数组文件
-agt project cancel demo-project-001 demo-project-001-01 --reason "不再需要"
+agt project cancel demo-project-001 demo-project-001-01 \
+  --reason "不再需要" --submission-id submission-123 --team biz-team
 agt project complete demo-project-001
 ```
 
@@ -473,3 +554,37 @@ Controller 代理每个 worker 的 QwenPaw app（QwenPaw ≥ 2.1）的四个端�
 - **降级**：无 running-config 路由的旧版 QwenPaw worker 原样透传上游
   `404`（版本门）。
 - 每次成功变更记审计日志（worker、新级别、调用者、角色）。
+
+## Worker 工具设置端点
+
+每个 QwenPaw Worker 的 agent 配置里带一张按工具的表（`tools.builtin_tools`）：
+哪些内置工具启用、哪些异步执行。Controller 代理 Worker 本地 `/api/tools`
+API 的最小读写面，让 L2 用户管理本团队 Worker 的工具——无需 `docker exec`。
+
+| 端点 | 含义 |
+|:--|:--|
+| `GET /api/v1/workers/{name}/tools` | 工具列表：`{"tools": [ {name, enabled, description, asyncExecution, icon, requiresConfig}, ... ], "total": N}`。 |
+| `PATCH /api/v1/workers/{name}/tools/{tool}` | 声明式更新。Body：`{"enabled": bool, "asyncExecution": bool}` 的一或两者。 |
+
+- **声明式、可重试**：代理先读当前表，仅对「请求值 ≠ 当前值」的字段发起
+  Worker 本地变更（本地 toggle 端点无 body、做翻转，裸转发会在重试时双翻转）。
+  无变化的 PATCH 返回 `200` 空操作，零上游写入。
+- **并发安全**：因本地 enabled 变更是无 body 的盲翻转，「读—判—改」序列在
+  每 (worker, tool) 锁内执行，且变更后核验上游返回的 `enabled` 与请求值一致。
+  两个重叠的 `PATCH {"enabled":true}` 均返回 `200` 且工具最终为启用（第二个
+  读到第一个的写入后空操作）；核验不一致返回 `502`，绝不假 `200`。
+- **只暴露状态，绝不暴露配置值**：条目含 `requiresConfig`（标志位）但不含
+  工具配置内容——其中可能含凭据。
+- **写范围**：admin/manager 可改任意 Worker；L2 用户只能改本团队 Worker——
+  跨团队 Worker 隐藏为 `404`（不可探测存在性）。团队 Leader 只读
+  （`PATCH` 得 `403`，与审批端点同一边界）。
+- **未知字段名被 `400` 拒绝**（fail-closed）；对外字段名为 camelCase
+  （`asyncExecution`、`requiresConfig`）。
+- **运行时感知**：工具设置模型是 QwenPaw 专有；其他 runtime 的 Worker 返回
+  `400`。**仅 embedded 模式**（kube 模式 `503`）。
+- **失败语义**：未知 Worker/工具 `404`；上游错误 `502`（无 `/api/tools` 路由
+  的 QwenPaw 版本为 `502` "API unavailable"）；上游列表畸形时 fail-closed 返回
+  `502`，绝不吐半份列表。
+- **生效方式**：本地变更保存 agent 配置并热加载 agent；Worker 自身的同步
+  循环把配置持久化到共享存储。
+- 每次成功变更记录审计日志（worker、工具、变更字段新旧值、调用者、角色）。

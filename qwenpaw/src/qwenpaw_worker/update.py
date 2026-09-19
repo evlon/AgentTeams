@@ -1636,9 +1636,13 @@ class RuntimeUpdater:
             api_key=desired["api_key"],
             provider_name=desired["provider_name"],
             chat_model=desired["chat_model"],
+            supports_image=desired.get("supports_image"),
+            supports_video=desired.get("supports_video"),
+            supports_multimodal=desired.get("supports_multimodal"),
+            probe_source=desired.get("probe_source"),
         )
 
-    def _model_desired_state(self, config: MemberRuntimeConfig) -> Optional[Dict[str, str]]:
+    def _model_desired_state(self, config: MemberRuntimeConfig) -> Optional[Dict[str, Any]]:
         model = config.model
         provider_id = _string(model.get("providerId") or model.get("provider_id") or model.get("provider"))
         model_name = _string(model.get("model") or model.get("name"))
@@ -1661,6 +1665,28 @@ class RuntimeUpdater:
         )
         if not api_key and api_key_env:
             api_key = _string(os.getenv(api_key_env))
+        # input modalities semantics:
+        #   key present -> explicit declaration; probe_source="manual" and the
+        #                  declared value is authoritative. An empty list means
+        #                  "declared text-only" and must NOT fall back to probing.
+        #   key absent  -> the runtime received no declaration; leave capabilities
+        #                  unset (None) so the runtime may probe.
+        if "input" in model:
+            input_modalities = model.get("input") or []
+            if isinstance(input_modalities, str):
+                input_modalities = [input_modalities]
+            supports_image = "image" in input_modalities
+            supports_video = "video" in input_modalities
+            supports_multimodal = bool(supports_image or supports_video)
+            supports_image_val = supports_image
+            supports_video_val = supports_video
+            supports_multimodal_val = supports_multimodal
+            probe_source_val = "manual"
+        else:
+            supports_image_val = None
+            supports_video_val = None
+            supports_multimodal_val = None
+            probe_source_val = None
         return {
             "provider_id": provider_id,
             "model": model_name,
@@ -1672,6 +1698,10 @@ class RuntimeUpdater:
             "chat_model": _string(
                 model.get("chatModel") or model.get("chat_model") or "OpenAIChatModel"
             ),
+            "supports_image": supports_image_val,
+            "supports_video": supports_video_val,
+            "supports_multimodal": supports_multimodal_val,
+            "probe_source": probe_source_val,
         }
 
     def _openai_compatible_base_url(self, base_url: str) -> str:
@@ -1836,6 +1866,12 @@ class RuntimeUpdater:
             "encryption": _env_bool("AGENTTEAMS_MATRIX_E2EE"),
             "group_disabled": False,
             "dm_disabled": False,
+            # #7001 group sender isolation: default False = per-sender
+            # sessions (AgentTeams decision 2026-09-05: "default isolated,
+            # otherwise the shared context will blow up"). Set
+            # AGENTTEAMS_MATRIX_SHARE_SESSION=true to restore room-wide
+            # session sharing (legacy behavior).
+            "share_session_in_group": _env_bool("AGENTTEAMS_MATRIX_SHARE_SESSION"),
             "show_tool_calls": True,
             "show_tool_results": True,
             "show_thinking": True,
@@ -2069,9 +2105,28 @@ class RuntimeUpdater:
             return text
         return f"@{text}:{domain}" if domain else ""
 
+    @staticmethod
+    def _is_trusted_mcp_host(url: str, gateway_url: str) -> bool:
+        """Mirror of the controller-side agentconfig.IsTrustedMCPHost.
+
+        The MCP gateway consumer key is attached only to entries addressed
+        to the configured AI gateway (exact host:port match). An unset or
+        unparseable gateway URL or entry URL trusts nothing (fail closed)
+        (#1220 §7).
+        """
+        if not url or not gateway_url:
+            return False
+        try:
+            gateway_host = urlparse(gateway_url).netloc
+            entry_host = urlparse(url).netloc
+        except ValueError:
+            return False
+        return bool(gateway_host) and entry_host == gateway_host
+
     def _mcporter_servers(self, config: MemberRuntimeConfig) -> Dict[str, Any]:
         raw = config.mcp_servers
         gateway_key = self._gateway_key(config)
+        gateway_url = _string(os.getenv("AGENTTEAMS_AI_GATEWAY_URL"))
         if isinstance(raw, dict) and isinstance(raw.get("mcpServers"), dict):
             raw = raw["mcpServers"]
 
@@ -2080,7 +2135,7 @@ class RuntimeUpdater:
             for item in raw:
                 if isinstance(item, dict):
                     name = _string(item.get("name"))
-                    payload = self._mcporter_server_payload(item, gateway_key)
+                    payload = self._mcporter_server_payload(item, gateway_key, gateway_url)
                     if name and payload:
                         servers[name] = payload
             return servers
@@ -2088,18 +2143,24 @@ class RuntimeUpdater:
         if isinstance(raw, dict):
             for name, item in raw.items():
                 if isinstance(item, dict):
-                    payload = self._mcporter_server_payload(item, gateway_key)
+                    payload = self._mcporter_server_payload(item, gateway_key, gateway_url)
                     if _string(name) and payload:
                         servers[_string(name)] = payload
         return servers
 
-    def _mcporter_server_payload(self, item: Dict[str, Any], gateway_key: str) -> Dict[str, Any]:
+    def _mcporter_server_payload(
+        self, item: Dict[str, Any], gateway_key: str, gateway_url: str
+    ) -> Dict[str, Any]:
         url = _string(item.get("url"))
         if not url:
             return {}
         headers = item.get("headers")
         headers = dict(headers) if isinstance(headers, dict) else {}
-        if gateway_key and "Authorization" not in headers:
+        if (
+            gateway_key
+            and "Authorization" not in headers
+            and self._is_trusted_mcp_host(url, gateway_url)
+        ):
             headers["Authorization"] = f"Bearer {gateway_key}"
         transport = _string(item.get("transport") or "http").lower()
         return {

@@ -21,10 +21,21 @@ as teams form and dissolve.
   absent field = unchanged; present field = replace; an explicitly empty
   list clears the list.
 - **Mutable fields:** `displayName`, `email`, `permissionLevel`,
-  `accessibleTeams`, `accessibleWorkers`, `note`.
+  `accessibleTeams`, `accessibleWorkers`, `capabilities`, `note`.
 - **Immutable through this endpoint:** `name` and the Matrix identity
   (username / matrixUserID). Re-provisioning the account is a deliberate
   destroy-and-recreate operation, not an edit.
+- **Level semantics (API authorization):** `1` = admin (the Matrix token
+  path does not resolve level-1 humans; they use the admin SA). `2` = team
+  scope (`accessibleTeams` + `capabilities`; see
+  [l2-worker-scoped-write.md](l2-worker-scoped-write.md) and
+  [capability-foundation.md](capability-foundation.md)). `3` = worker
+  scope — **read-only** access to exactly the `accessibleWorkers` (worker
+  detail, channel config, approval config; no writes);
+  `accessibleTeams` / `capabilities` on a level-3 CR do not grant
+  anything (see [l3-worker-scoped-read.md](l3-worker-scoped-read.md)).
+  The level takes effect on the next authentication (cached identities
+  expire on the authenticator's normal TTL).
 - **Validation, applied before the K8s write:**
   - `permissionLevel` must be 1, 2, or 3 → otherwise `400`.
   - `accessibleTeams` must reference existing Team CRs and
@@ -32,6 +43,13 @@ as teams form and dissolve.
     missing references. A dangling grant silently widens nothing but
     leaves the human unable to reach a resource they believe they can;
     rejecting it at write time keeps the permission model honest.
+  - `capabilities` must be within the closed five-value set
+    (`full_access`, `channel_secrets`, `external_sources`,
+    `approval_policy`, `secret_reveal` — see
+    [capability-foundation.md](capability-foundation.md)) → otherwise
+    `400` naming the unknown value(s) and listing the valid set. Stored
+    normalized (deduped + sorted); every grant/revoke is written to the
+    dual-layer audit trail.
 - **Authorization:** the route is `ActionUpdate` on the `human` kind. The
   existing matrix already allows that only for admin/manager; team leaders,
   team-scoped humans, and worker accounts fall through to the default deny.
@@ -55,7 +73,7 @@ as teams form and dissolve.
 |--------|------|
 | updated | `200` + full human representation |
 | human not found | `404` |
-| invalid JSON / bad level / dangling reference | `400` |
+| invalid JSON / bad level / dangling reference / unknown capability | `400` |
 | reference validation backend failure (K8s error) | `500` |
 | K8s conflict after retries | `409` |
 
@@ -63,11 +81,12 @@ Request body (all fields optional):
 
 ```json
 {
-  "displayName": "Mai Zong",
-  "email": "maizong@example.com",
+  "displayName": "Alice",
+  "email": "alice@example.com",
   "permissionLevel": 2,
   "accessibleTeams": ["market-team"],
   "accessibleWorkers": [],
+  "capabilities": ["approval_policy"],
   "note": "Marketing lead"
 }
 ```
@@ -86,6 +105,9 @@ Request body (all fields optional):
   update applied with untouched fields preserved; partial merge preserves
   the rest; explicit empty list clears; invalid levels (0/4/-1) → 400;
   missing team → 400 named; missing worker → 400 named; existing worker →
-  200; unknown human → 404.
+  200; unknown human → 404. Capabilities: grant applied (deduped + sorted)
+  with other fields preserved; omitted = unchanged; `[]` clears; unknown
+  value → 400 listing the valid set (and not persisted); grant + revoke
+  write the expected dual-layer audit lines.
 - `internal/auth/authorizer_test.go` — `TestAuthorizer_HumanUpdateAdminOnly`:
   admin/manager allowed; team leader, L2 human, and worker denied.

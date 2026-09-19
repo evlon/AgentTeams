@@ -287,7 +287,17 @@ with urlopen("http://127.0.0.1:8088/api/mcp/teamharness") as response:
 cwd = Path(client["cwd"])
 working_dir = cwd.parents[2]
 workspace = working_dir / "workspaces" / "default"
+# QwenPaw 2.0.1 masks custom env values, including both role variables.
+# Recover the role from Controller-projected state, never the requested action
+# or the container's stale startup environment.
+import yaml
+runtime_path = working_dir.parent / "runtime" / "runtime.yaml"
+runtime_role = (yaml.safe_load(runtime_path.read_text()).get("member") or {}).get("role")
+if not runtime_role:
+    raise RuntimeError("runtime.yaml has no member role for the MCP probe")
 derived_env = {
+    "AGENTTEAMS_AGENT_ROLE": runtime_role,
+    "AGENTTEAMS_WORKER_ROLE": runtime_role,
     "QWENPAW_WORKING_DIR": str(working_dir),
     "TEAMHARNESS_RUNTIME_CONFIG": str(working_dir.parent / "runtime" / "runtime.yaml"),
     "TEAMHARNESS_SHARED_DIR": str((workspace / "shared").resolve()),
@@ -298,12 +308,14 @@ env = dict(os.environ)
 for key, value in (client.get("env") or {}).items():
     key = str(key)
     value = str(value)
-    if key in os.environ:
-        env[key] = os.environ[key]
+    # Match the MCP client's configured environment. The container's initial
+    # role can still be standalone after team attachment updates the client.
+    if "*" not in value:
+        env[key] = value
     elif key in derived_env:
         env[key] = derived_env[key]
-    elif "*" not in value:
-        env[key] = value
+    elif key in os.environ:
+        env[key] = os.environ[key]
 request = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -1116,8 +1128,9 @@ server = mcp.get(mcp_name) or {}
 if server.get("url") != mcp_url or server.get("transport") != api_mcp_transport:
     problems.append("mcp:api")
 authorization = (server.get("headers") or {}).get("Authorization", "")
-if not authorization or "*" not in authorization:
-    problems.append("auth:api")
+# This fixture is outside the trusted gateway; never forward its credential.
+if authorization:
+    problems.append("auth:external_credential_leak")
 package_server = mcp.get(package_mcp_name) or {}
 if package_server.get("url") != package_mcp_url or not package_server.get("enabled"):
     problems.append("package_mcp:api")

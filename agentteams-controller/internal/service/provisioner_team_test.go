@@ -239,6 +239,10 @@ func (f *fakeTeamMatrix) SendMessage(context.Context, string, string, string) er
 
 func (f *fakeTeamMatrix) SendMessageAsAdmin(context.Context, string, string) error { return nil }
 
+func (f *fakeTeamMatrix) SendNotification(context.Context, string, string, []string) error {
+	return nil
+}
+
 func (f *fakeTeamMatrix) Login(context.Context, string, string) (string, error) { return "", nil }
 
 // InvalidateUserToken is a no-op: the fake holds no login-token cache.
@@ -370,6 +374,10 @@ func (fakeGateway) DeleteRoute(context.Context, string) error                   
 func (fakeGateway) EnsureAIProvider(context.Context, gateway.AIProviderRequest) error { return nil }
 func (fakeGateway) EnsureStreamIdleTimeout(context.Context, int) error                { return nil }
 func (fakeGateway) EnsureAIRoute(context.Context, gateway.AIRouteRequest) error       { return nil }
+func (fakeGateway) ListAIRoutes(context.Context) ([]gateway.AIRouteInfo, error) {
+	return nil, nil
+}
+
 func (fakeGateway) ResolveModelProvider(context.Context, string) (*gateway.ModelProviderInfo, error) {
 	return nil, gateway.ErrUnsupportedOp
 }
