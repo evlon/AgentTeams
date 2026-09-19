@@ -1,0 +1,81 @@
+name: Retag images
+
+# Ad-hoc helper: repoint an existing multi-architecture set of images at another
+# tag (e.g. move a -prebuild tag onto the real release tag) using the GitHub
+# Actions write token we already hold for ghcr. No rebuild happens — this only
+# copies the already-published manifest lists / blobs to new tag names.
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_version:
+        description: 'Source tag to copy FROM (e.g. v1.2.4-prebuild)'
+        required: true
+        type: string
+        default: 'v1.2.4-prebuild'
+      to_version:
+        description: 'Destination tag to copy TO (e.g. v1.2.4)'
+        required: true
+        type: string
+        default: 'v1.2.4'
+      targets:
+        description: 'Space-separated image targets (default = core set)'
+        required: false
+        type: string
+        default: 'agentteams-controller embedded manager-qwenpaw'
+
+permissions:
+  contents: read
+  # Required to log into ghcr with a write-capable token.
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  REPO: ${{ github.repository_owner }}
+
+jobs:
+  retag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Retag images
+        run: |
+          set -euo pipefail
+          src="${{ inputs.from_version }}"
+          dst="${{ inputs.to_version }}"
+          for target in ${{ inputs.targets }}; do
+            case "$target" in
+              openclaw-base|agentteams-controller) image="$target" ;;
+              *) image="agentteams-${target}" ;;
+            esac
+            src_ref="${REGISTRY}/${REPO}/${image}:${src}"
+            dst_ref="${REGISTRY}/${REPO}/${image}:${dst}"
+            echo "::group::${src_ref} -> ${dst_ref}"
+            # Copy the full manifest list + all blobs (--all keeps every arch).
+            docker buildx imagetools create -t "${dst_ref}" "${src_ref}"
+            echo "::endgroup::"
+          done
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          dst="${{ inputs.to_version }}"
+          for target in ${{ inputs.targets }}; do
+            case "$target" in
+              openclaw-base|agentteams-controller) image="$target" ;;
+              *) image="agentteams-${target}" ;;
+            esac
+            ref="${REGISTRY}/${REPO}/${image}:${dst}"
+            echo "== $ref =="
+            docker buildx imagetools inspect "$ref" --raw | jq -r \
+              '.manifests[]?.platform | select(.os=="linux") | "\(.architecture)"' | sort -u
+          done
