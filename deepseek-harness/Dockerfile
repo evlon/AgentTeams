@@ -11,7 +11,7 @@ FROM node:22.22-bookworm-slim
 # version is instead recorded in the image label below, so a running worker can
 # report which DSH it carries; publish under a distinct runtime tag when you
 # need two DSH versions to coexist in the registry.
-ARG DSH_VERSION=0.1.1-rc.2
+ARG DSH_VERSION=0.1.5-rc.2
 
 # Recorded in the image so a running worker can report which DSH it carries.
 LABEL org.opencontainers.image.title="AgentTeams DeepSeek Harness Worker" \

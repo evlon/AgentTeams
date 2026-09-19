@@ -33,7 +33,7 @@ DEEPSEEK_HARNESS_WORKER_VERSION ?= v0.1.0
 # Note this does NOT change the image tag; two builds that differ only in
 # DSH_VERSION would collide on the same tag. Bump
 # DEEPSEEK_HARNESS_WORKER_VERSION alongside it when publishing both.
-DSH_VERSION    ?= 0.1.1-rc.2
+DSH_VERSION    ?= 0.1.5-rc.2
 REGISTRY       ?= higress-registry.cn-hangzhou.cr.aliyuncs.com
 REPO           ?= agentteams
 
@@ -58,7 +58,7 @@ QWENPAW_WORKER_TAG ?= $(QWENPAW_WORKER_IMAGE):$(VERSION)
 OPENHUMAN_WORKER_TAG ?= $(OPENHUMAN_WORKER_IMAGE):$(VERSION)
 DEEPSEEK_HARNESS_WORKER_TAG ?= $(DEEPSEEK_HARNESS_WORKER_IMAGE):$(DEEPSEEK_HARNESS_WORKER_VERSION)
 # Extra tag that records which DSH release is baked in, e.g.
-# v0.1.0-dsh0.1.1-rc.2. The plain runtime tag above stays the canonical,
+# v0.1.0-dsh0.1.5-rc.2. The plain runtime tag above stays the canonical,
 # literally-pinned one (installer, Helm and release workflow all reference
 # v0.1.0), while this alias makes the baked-in DSH version visible in the
 # registry so two DSH builds of the same runtime line can coexist instead of
@@ -234,7 +234,7 @@ build-qwenpaw-worker: ## Build QwenPaw Worker image
 		-t $(LOCAL_QWENPAW_WORKER) \
 		.
 
-build-deepseek-harness-worker: ## Build DeepSeek Harness Worker image (DSH_VERSION=0.1.1-rc.2)
+build-deepseek-harness-worker: ## Build DeepSeek Harness Worker image (DSH_VERSION=0.1.5-rc.2)
 	@echo "==> Building DeepSeek Harness Worker image: $(LOCAL_DEEPSEEK_HARNESS_WORKER) (DSH: $(DSH_VERSION), registry: $(HIGRESS_REGISTRY))"
 	docker build $(PLATFORM_FLAG) $(REGISTRY_ARG) $(DOCKER_BUILD_ARGS) \
 		--build-arg DSH_VERSION=$(DSH_VERSION) \
@@ -535,7 +535,7 @@ else
 		-f qwenpaw/Dockerfile .
 endif
 
-push-deepseek-harness-worker: buildx-setup ## Build + push multi-arch DeepSeek Harness Worker image (DSH_VERSION=0.1.1-rc.2)
+push-deepseek-harness-worker: buildx-setup ## Build + push multi-arch DeepSeek Harness Worker image (DSH_VERSION=0.1.5-rc.2)
 	@echo "==> Building + pushing multi-arch DeepSeek Harness Worker: $(DEEPSEEK_HARNESS_WORKER_TAG) (DSH: $(DSH_VERSION)) [$(MULTIARCH_PLATFORMS)]"
 	@echo "    also tagged: $(DEEPSEEK_HARNESS_WORKER_DSH_TAG)"
 ifeq ($(IS_PODMAN),1)
