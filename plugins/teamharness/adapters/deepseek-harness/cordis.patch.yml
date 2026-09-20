@@ -10,6 +10,16 @@
     provider: deepseek-official
     model: !!js process.env.TEAMHARNESS_DSH_MODEL || 'deepseek-v4-flash'
 
+# Per-request output-token cap for the DeepSeek adapter, made tunable via env.
+# The DSH (and this adapter) default max_tokens is 256000, which is correct for
+# the large production models. Some smaller test models (e.g. deepseek-v4-flash,
+# 262144 total context) overflow when 256000 + prompt length exceeds that window,
+# so deploy-time can override with TEAMHARNESS_DSH_MAX_TOKENS (e.g. 8192).
+# When unset, fall back to the DSH-native default 256000.
+- id: llm-deepseek
+  config:
+    maxTokens: !!js Number.parseInt(process.env.TEAMHARNESS_DSH_MAX_TOKENS, 10) || 256000
+
 - id: headless-runner
   disabled: true
 

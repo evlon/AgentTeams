@@ -43,6 +43,13 @@ export DSH_HOME="${WORKER_HOME}/.dsh"
 export TEAMHARNESS_RUNTIME_CONFIG="${RUNTIME_CONFIG}"
 export TEAMHARNESS_WORKSPACE="${WORKER_HOME}/workspace"
 export TEAMHARNESS_DSH_SKILL_ROOT="${RUNTIME_DIR}/dsh-skills"
+# Per-request output-token cap for the DeepSeek adapter (see llm-deepseek
+# maxTokens in cordis.patch.yml). The default equals the DSH-native 256000,
+# which is correct for the large production models; some smaller test models
+# (e.g. deepseek-v4-flash, 262144 total context) overflow when 256000 + prompt
+# exceeds that window, so override per deploy with TEAMHARNESS_DSH_MAX_TOKENS
+# (e.g. export TEAMHARNESS_DSH_MAX_TOKENS=8192).
+export TEAMHARNESS_DSH_MAX_TOKENS="${TEAMHARNESS_DSH_MAX_TOKENS:-256000}"
 export TEAMHARNESS_PYTHON="/usr/bin/python3"
 export AGENTTEAMS_PLUGIN_DIR="/opt/agentteams/plugins/teamharness"
 export AGENTTEAMS_MATRIX_USER_ID="@${WORKER_NAME}:${AGENTTEAMS_MATRIX_DOMAIN}"
