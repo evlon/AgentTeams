@@ -44,7 +44,18 @@ async function openAgent(ctx, sessionId, resume, selection) {
   if (persistence === undefined) {
     throw new Error('agentteams-headless-runner: sessionPersistence is required')
   }
-  const persisted = (await persistence.list()).some(header => header.id === sessionId)
+  // DSH's sessionPersistence.list() yields snapshots shaped
+  // { header, revision, sizeBytes } — the session identity lives on
+  // snapshot.header.id, NOT on the snapshot itself. Reading `header.id` off the
+  // snapshot silently yields undefined for every entry, so a persisted session
+  // was never recognised, every continuation turn took the "missing session"
+  // branch, and resume always failed with:
+  //   requested resume for missing DSH session <id>
+  // Accept both shapes so the adapter keeps working if a future DSH returns
+  // bare headers again.
+  const persisted = (await persistence.list()).some(
+    entry => (entry?.header?.id ?? entry?.id) === sessionId,
+  )
   if (persisted) {
     return agents.resume({ ...options, resumeSessionId: sessionId })
   }

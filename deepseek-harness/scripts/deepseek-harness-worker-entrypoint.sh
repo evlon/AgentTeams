@@ -49,7 +49,16 @@ export TEAMHARNESS_DSH_SKILL_ROOT="${RUNTIME_DIR}/dsh-skills"
 # (e.g. deepseek-v4-flash, 262144 total context) overflow when 256000 + prompt
 # exceeds that window, so override per deploy with TEAMHARNESS_DSH_MAX_TOKENS
 # (e.g. export TEAMHARNESS_DSH_MAX_TOKENS=8192).
-export TEAMHARNESS_DSH_MAX_TOKENS="${TEAMHARNESS_DSH_MAX_TOKENS:-256000}"
+#
+# fork(evlon) fix 2026-09-20: default lowered 256000 -> 8192 because the only
+# model this deployment serves (deepseek/deepseek-v4-flash) has a 262144-token
+# total context window; 256000 output + prompt exceeded it -> the first DSH turn
+# failed (400 CONTEXT_WINDOW_EXCEEDED) AND, because the session had already been
+# created before the 400, every later turn of the same room then failed with
+# dsh: session "session-agentteams-<hash>" already exists. Lower value keeps the
+# real token ceiling high while leaving headroom (prompt) inside the window.
+# Raise/override via TEAMHARNESS_DSH_MAX_TOKENS when serving a larger model.
+export TEAMHARNESS_DSH_MAX_TOKENS="${TEAMHARNESS_DSH_MAX_TOKENS:-8192}"
 export TEAMHARNESS_PYTHON="/usr/bin/python3"
 export AGENTTEAMS_PLUGIN_DIR="/opt/agentteams/plugins/teamharness"
 export AGENTTEAMS_MATRIX_USER_ID="@${WORKER_NAME}:${AGENTTEAMS_MATRIX_DOMAIN}"
